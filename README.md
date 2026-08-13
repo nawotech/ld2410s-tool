@@ -1,4 +1,4 @@
-# LD2410S Studio
+# LD2410S Tool
 
 A cross-platform visualiser and configurator for the HLK-LD2410S mmWave presence sensor,
 replacing the Windows-only `HLK-LD2410S_TOOL.exe`. Runs in any Chromium browser via the
