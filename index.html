@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LD2410S Studio</title>
+<style>
+  :root {
+    --bg:#0f1115; --panel:#171a21; --line:#252a34; --ink:#e6e9ef; --dim:#8b93a3;
+    --accent:#4c8dff; --trigger:#fc5d45; --hold:#3478ff; --ok:#15bc59; --warn:#f0a72f;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f5f6f8; --panel:#fff; --line:#dfe3ea; --ink:#1a1d23; --dim:#666e7d; }
+  }
+  * { box-sizing:border-box; }
+  /* main is display:grid, which otherwise wins over the hidden attribute */
+  [hidden] { display:none !important; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.5 ui-sans-serif,system-ui,-apple-system,sans-serif; }
+  header { display:flex; align-items:center; gap:12px; padding:10px 16px; border-bottom:1px solid var(--line); background:var(--panel); flex-wrap:wrap; }
+  h1 { font-size:15px; margin:0 12px 0 0; font-weight:650; letter-spacing:-.01em; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:6px; padding:6px 12px; font:inherit; font-weight:550; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--ink); border:1px solid var(--line); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  main { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:14px; padding:14px; align-items:start; }
+  @media (max-width:900px) { main { grid-template-columns:minmax(0,1fr); } }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:14px; }
+  .card h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); margin:0 0 10px; font-weight:600; }
+  /* Canvases need an explicit CSS height: with only width:100% they keep their
+     intrinsic aspect ratio and grow absurdly tall. */
+  canvas { width:100%; display:block; touch-action:none; }
+  #gates { height:300px; }
+  #timeline { height:170px; }
+  .stats { display:flex; gap:20px; flex-wrap:wrap; align-items:baseline; }
+  .stat .v { font-size:26px; font-weight:650; font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
+  .stat .k { font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.05em; }
+  .pill { padding:3px 10px; border-radius:99px; font-size:12px; font-weight:600; background:var(--line); }
+  .pill.on { background:var(--trigger); color:#fff; }
+  .pill.off { background:var(--ok); color:#fff; }
+  .row { display:flex; justify-content:space-between; align-items:center; gap:8px; margin:7px 0; }
+  .row label { color:var(--dim); font-size:13px; }
+  input, select { background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:5px; padding:4px 7px; font:inherit; width:104px; text-align:right; }
+  .legend { display:flex; gap:14px; font-size:12px; color:var(--dim); margin-bottom:6px; flex-wrap:wrap; }
+  .sw { display:inline-block; width:10px; height:10px; border-radius:2px; vertical-align:middle; margin-right:5px; }
+  #log { font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--dim); max-height:110px; overflow:auto; white-space:pre-wrap; }
+  .hint { font-size:12px; color:var(--dim); margin:8px 0 0; }
+  .lim { color:var(--dim); font-weight:400; font-size:11px; margin-left:4px; }
+  input:invalid { outline:1px solid var(--trigger); }
+
+  .tabs { display:flex; gap:0; border:1px solid var(--line); border-radius:7px; overflow:hidden; }
+  .tab { background:transparent; color:var(--dim); border:0; border-radius:0; padding:6px 14px; font-weight:550; }
+  .tab.sel { background:var(--accent); color:#fff; }
+
+  /* Live view is a single column — the presence orb is the whole point of it. */
+  #viewLive { grid-template-columns:minmax(0,1fr); }
+  .indicator { display:flex; align-items:center; gap:32px; flex-wrap:wrap; justify-content:center; padding:28px 20px; }
+  .orb {
+    width:240px; height:240px; border-radius:50%; flex:none;
+    display:flex; align-items:center; justify-content:center;
+    font-size:26px; font-weight:700; letter-spacing:.02em; color:#fff;
+    background:var(--line); border:6px solid transparent;
+    transition:background .18s ease, box-shadow .18s ease;
+  }
+  .orb.on  { background:var(--trigger); box-shadow:0 0 0 12px color-mix(in srgb, var(--trigger) 18%, transparent); }
+  .orb.off { background:var(--ok);      box-shadow:0 0 0 12px color-mix(in srgb, var(--ok) 18%, transparent); }
+  /* Idle: no data arriving. Neither red nor green would be honest here. */
+  .orb.idle { background:var(--line); color:var(--dim); box-shadow:none; }
+  .readout { display:flex; flex-direction:column; gap:14px; min-width:150px; }
+  .readout .v { font-size:34px; }
+  .readout .unit { font-size:15px; color:var(--dim); font-weight:400; }
+  @media (max-width:560px) { .orb { width:180px; height:180px; font-size:21px; } .readout .v { font-size:27px; } }
+  .banner { padding:10px 16px; background:var(--warn); color:#231a05; font-size:13px; }
+  progress { width:100%; }
+</style>
+</head>
+<body>
+<div class="banner" id="unsupported" hidden>
+  This browser has no Web Serial API. Use Chrome, Edge, or another Chromium browser — and open this page over
+  <code>http://localhost</code>, not <code>file://</code>.
+</div>
+
+<header>
+  <h1>LD2410S Studio</h1>
+  <button id="connect">Connect</button>
+  <button id="disconnect" class="ghost" disabled>Disconnect</button>
+  <span class="pill" id="status">disconnected</span>
+  <span style="flex:1"></span>
+  <button id="record" class="ghost" disabled>Record</button>
+  <button id="export" class="ghost" disabled>Export CSV</button>
+  <div class="tabs">
+    <button id="tabLive" class="tab sel">Live</button>
+    <button id="tabAdv" class="tab">Advanced</button>
+  </div>
+</header>
+
+<main id="viewLive">
+  <div>
+    <div class="card indicator">
+      <div id="orb" class="orb"><span id="orbText">—</span></div>
+      <div class="readout">
+        <div class="stat"><div class="k">Distance</div><div class="v"><span id="dist">—</span> <span class="unit">cm</span></div></div>
+        <div class="stat"><div class="k">Gate</div><div class="v" id="gate">—</div></div>
+        <div class="stat"><div class="k">Measured rate</div><div class="v" id="fps">—</div></div>
+        <div class="stat"><div class="k">Firmware</div><div class="v" style="font-size:16px" id="fw">—</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Distance — last 5 minutes</h2>
+      <canvas id="timeline" height="220"></canvas>
+    </div>
+  </div>
+</main>
+
+<main id="viewAdv" hidden>
+  <div>
+    <div class="card">
+      <h2>Gate energy vs thresholds</h2>
+      <div class="legend">
+        <span><i class="sw" style="background:var(--accent)"></i>live energy (dB)</span>
+        <span><i class="sw" style="background:var(--trigger)"></i>trigger threshold</span>
+        <span><i class="sw" style="background:var(--hold)"></i>hold threshold</span>
+        <span>drag a threshold point to edit</span>
+      </div>
+      <canvas id="gates" height="300"></canvas>
+      <p class="hint">Energy is <code>10·log₁₀(raw)</code>, the same dB scale the thresholds use. A gate trips when
+      energy crosses its trigger line, and stays tripped until it falls below the hold line.</p>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>Detection</h2>
+      <div class="row"><label title="Nearest gate included in detection.">Min gate <span class="lim">0–16</span></label><input id="minGate" type="number" min="0" max="16" step="1"></div>
+      <div class="row"><label title="Farthest gate included in detection.">Max gate <span class="lim">1–16</span></label><input id="maxGate" type="number" min="1" max="16" step="1"></div>
+      <div class="row"><label title="Delay before the module reports occupied -> clear. Minimum 10 s by design.">Unmanned delay <span class="lim">10–120 s</span></label><input id="unmannedDelay" type="number" min="10" max="120" step="1"></div>
+      <div class="row"><label title="How often the occupied/clear state is reported.">Status freq <span class="lim">0.5–8 Hz</span></label><input id="statusFreq" type="number" min="0.5" max="8" step="0.5"></div>
+      <div class="row"><label title="How often target distance is reported. Only reported while occupied.">Distance freq <span class="lim">0.5–8 Hz</span></label><input id="distFreq" type="number" min="0.5" max="8" step="0.5"></div>
+      <div class="row"><label title="How quickly the module decides the area has become unoccupied. Does not affect detection speed.">Response speed</label>
+        <select id="responseSpeed"><option value="5">Normal</option><option value="10">Fast</option></select>
+      </div>
+      <p class="hint">Ranges are enforced — the module does not range-check and silently
+        truncates out-of-range values to one byte. Response speed and unmanned delay affect
+        only how fast <em>clear</em> is reported, never how fast presence is detected.</p>
+      <div class="row" style="margin-top:12px">
+        <button id="readCfg" class="ghost" disabled>Read</button>
+        <button id="writeCfg" disabled>Apply</button>
+      </div>
+      <p class="hint" id="rangeHint"></p>
+    </div>
+
+    <div class="card">
+      <h2>Thresholds</h2>
+      <div class="row"><label>Trigger factor</label><input id="tfac" type="number" value="2" min="1" max="10"></div>
+      <div class="row"><label>Hold factor</label><input id="hfac" type="number" value="1" min="1" max="10"></div>
+      <div class="row"><label>Scan time (s)</label><input id="scan" type="number" value="120" min="10" max="600"></div>
+      <div class="row">
+        <button id="auto" class="ghost" disabled>Auto-learn</button>
+        <button id="writeThr" disabled>Write</button>
+      </div>
+      <progress id="prog" value="0" max="100" hidden></progress>
+      <p class="hint">Auto-learn measures the empty room for the scan window — leave the area before starting.</p>
+    </div>
+
+    <div class="card">
+      <h2>Log</h2>
+      <div id="log"></div>
+    </div>
+  </div>
+</main>
+
+<script type="module">
+import { LD2410S, GATES, GATE_METERS, toDb, validateCommon } from './ld2410s.js';
+
+const $ = (id) => document.getElementById(id);
+const dev = new LD2410S();
+
+const TIMELINE_MS = 5 * 60_000;   // distance timeline window
+
+if (!('serial' in navigator)) {
+  $('unsupported').hidden = false;
+  $('connect').disabled = true;
+}
+
+const state = {
+  latest: null,
+  energy: new Array(GATES).fill(0),
+  trigger: new Array(GATES).fill(0),
+  hold: new Array(GATES).fill(0),
+  history: [],          // {t, state, distance}
+  recording: null,
+
+};
+
+function log(msg) {
+  const el = $('log');
+  el.textContent = `${new Date().toLocaleTimeString()}  ${msg}\n` + el.textContent;
+}
+
+/* ---------- connection ---------- */
+
+$('connect').onclick = async () => {
+  try {
+    const port = await navigator.serial.requestPort();
+    await dev.connect(port, 115200);
+    $('status').textContent = 'connected';
+    $('status').className = 'pill on';
+    for (const id of ['disconnect','readCfg','writeCfg','auto','writeThr','record'])
+      $(id).disabled = false;
+    $('connect').disabled = true;
+    log('port opened at 115200');
+    await bootstrap();
+  } catch (e) { log(`connect failed: ${e.message}`); }
+};
+
+$('disconnect').onclick = async () => {
+  await dev.disconnect();
+  $('status').textContent = 'disconnected';
+  $('status').className = 'pill';
+  $('connect').disabled = false;
+  for (const id of ['disconnect','readCfg','writeCfg','auto','writeThr','record'])
+    $(id).disabled = true;
+  log('port closed');
+};
+
+/* Reads identity + all config, then switches the module to standard frames
+ * so we get per-gate energy instead of just state and distance. */
+async function bootstrap() {
+  await dev.withConfig(async () => {
+    $('fw').textContent = 'V' + await dev.firmwareVersion();
+    try { log(`serial number: ${await dev.serialNumber()}`); } catch {}
+    applyCommon(await dev.readCommon());
+    state.trigger = await dev.readThresholds(false);
+    state.hold = await dev.readThresholds(true);
+    await dev.setOutputMode(true);
+  });
+  log('standard output mode enabled');
+}
+
+dev.onLog = log;
+
+dev.onData = (f) => {
+
+  if (f.type === 'progress') {
+    $('prog').hidden = false;
+    $('prog').value = f.percent;
+    if (f.percent >= 100) {
+      $('prog').hidden = true;
+      log('auto-learn complete — re-reading thresholds');
+      dev.withConfig(async () => {
+        state.trigger = await dev.readThresholds(false);
+        state.hold = await dev.readThresholds(true);
+      }).catch((e) => log(e.message));
+    }
+    return;
+  }
+  if (f.type === 'standard' || f.type === 'minimal') {
+    state.latest = f;
+    if (f.energy) state.energy = f.energy;
+    const row = { t: Date.now(), state: f.state, distance: f.distance };
+    state.history.push(row);
+    // Retain by time, not count, so the full window survives at any report rate.
+    const cutoff = row.t - TIMELINE_MS - 10_000;
+    while (state.history.length && state.history[0].t < cutoff) state.history.shift();
+    if (recording) state.recording.push({ ...row, energy: f.energy ?? [] });
+  }
+};
+
+/* Report rates run 0.5–8 Hz, so counting whole frames per second has no useful
+ * resolution. Derive the rate from the mean gap over the last few frames instead. */
+function measuredHz() {
+  const h = state.history;
+  const n = Math.min(9, h.length - 1);
+  if (n < 1) return null;
+  const span = h[h.length - 1].t - h[h.length - 1 - n].t;
+  return span > 0 ? (n / span) * 1000 : null;
+}
+
+/* ---------- config panel ---------- */
+
+const COMMON_IDS = ['minGate','maxGate','unmannedDelay','statusFreq','distFreq','responseSpeed'];
+
+function applyCommon(c) {
+  for (const k of COMMON_IDS) $(k).value = c[k];
+  updateRangeHint();
+  log(`config: gates ${c.minGate}-${c.maxGate}, delay ${c.unmannedDelay}s, ` +
+      `status ${c.statusFreq}Hz, distance ${c.distFreq}Hz, speed ${c.responseSpeed === 10 ? 'fast' : 'normal'}`);
+  // The module accepts junk silently, so flag anything it echoes back outside spec.
+  try { validateCommon(c); } catch (e) { log(`WARNING — module reports out-of-spec value: ${e.message}`); }
+}
+
+function readCommonForm() {
+  const o = {};
+  for (const k of COMMON_IDS) o[k] = Number($(k).value);
+  return o;
+}
+
+function updateRangeHint() {
+  const c = readCommonForm();
+  $('rangeHint').textContent =
+    `Active range ${(c.minGate * GATE_METERS).toFixed(1)}–${(c.maxGate * GATE_METERS).toFixed(1)} m ` +
+    `(${GATE_METERS} m per gate).`;
+}
+for (const k of ['minGate','maxGate']) $(k).oninput = updateRangeHint;
+
+$('readCfg').onclick = () => dev.withConfig(async () => {
+  applyCommon(await dev.readCommon());
+  state.trigger = await dev.readThresholds(false);
+  state.hold = await dev.readThresholds(true);
+}).catch((e) => log(`read failed: ${e.message}`));
+
+$('writeCfg').onclick = () => dev.withConfig(async () => {
+  const c = readCommonForm();
+  await dev.writeCommon(c);   // validates; throws before anything reaches the module
+  log('common parameters written');
+  applyCommon(await dev.readCommon());
+}).catch((e) => log(`write failed: ${e.message}`));
+
+$('writeThr').onclick = () => dev.withConfig(async () => {
+  await dev.writeThresholds(false, state.trigger);
+  await dev.writeThresholds(true, state.hold);
+  log('thresholds written');
+}).catch((e) => log(`write failed: ${e.message}`));
+
+$('auto').onclick = () => dev.withConfig(async () => {
+  await dev.autoThreshold(Number($('tfac').value), Number($('hfac').value), Number($('scan').value));
+  log(`auto-learn started (${$('scan').value}s) — stay out of the detection area`);
+}).catch((e) => log(`auto-learn failed: ${e.message}`));
+
+/* ---------- recording ---------- */
+
+let recording = false;
+$('record').onclick = () => {
+  recording = !recording;
+  if (recording) {
+    state.recording = [];
+    $('record').textContent = 'Stop';
+    log('recording started');
+  } else {
+    $('record').textContent = 'Record';
+    $('export').disabled = (state.recording?.length ?? 0) === 0;
+    log(`recording stopped (${state.recording.length} samples)`);
+  }
+};
+
+$('export').onclick = () => {
+  const rows = state.recording ?? [];
+  const head = ['timestamp','state','distance_cm', ...Array.from({length: GATES}, (_, g) => `gate${g}_raw`)];
+  const csv = [head.join(',')].concat(rows.map((r) =>
+    [new Date(r.t).toISOString(), r.state, r.distance, ...r.energy].join(','))).join('\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = `ld2410s-${Date.now()}.csv`; a.click();
+  URL.revokeObjectURL(url);
+};
+
+/* ---------- gate chart with draggable thresholds ---------- */
+
+const gc = $('gates');
+const PAD = { l: 34, r: 10, t: 10, b: 26 };
+const DB_MAX = 60;
+let drag = null;
+
+function fit(cv) {
+  const dpr = devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  }
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, w, h };
+}
+
+const gx = (w, g) => PAD.l + (g + 0.5) * ((w - PAD.l - PAD.r) / GATES);
+const gy = (h, db) => PAD.t + (1 - Math.min(db, DB_MAX) / DB_MAX) * (h - PAD.t - PAD.b);
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+function drawGates() {
+  const { ctx, w, h } = fit(gc);
+  ctx.clearRect(0, 0, w, h);
+  const bw = (w - PAD.l - PAD.r) / GATES;
+
+  ctx.strokeStyle = css('--line'); ctx.fillStyle = css('--dim');
+  ctx.font = '10px ui-monospace, monospace'; ctx.lineWidth = 1;
+  for (let db = 0; db <= DB_MAX; db += 10) {
+    const y = gy(h, db);
+    ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(w - PAD.r, y); ctx.stroke();
+    ctx.textAlign = 'right'; ctx.fillText(String(db), PAD.l - 5, y + 3);
+  }
+
+  const c = readCommonForm();
+  for (let g = 0; g < GATES; g++) {
+    const x = PAD.l + g * bw, active = g >= c.minGate && g <= c.maxGate;
+    const db = toDb(state.energy[g]);
+    ctx.fillStyle = active ? css('--accent') : css('--line');
+    ctx.globalAlpha = active ? 0.85 : 0.5;
+    const y = gy(h, db);
+    ctx.fillRect(x + 3, y, bw - 6, h - PAD.b - y);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = css('--dim'); ctx.textAlign = 'center';
+    ctx.fillText(String(g), x + bw / 2, h - PAD.b + 12);
+    if (g % 4 === 0) ctx.fillText(`${(g * GATE_METERS).toFixed(1)}m`, x + bw / 2, h - PAD.b + 23);
+  }
+
+  for (const [vals, colour] of [[state.trigger, css('--trigger')], [state.hold, css('--hold')]]) {
+    ctx.strokeStyle = colour; ctx.fillStyle = colour; ctx.lineWidth = 2;
+    ctx.beginPath();
+    vals.forEach((v, g) => (g ? ctx.lineTo(gx(w, g), gy(h, v)) : ctx.moveTo(gx(w, g), gy(h, v))));
+    ctx.stroke();
+    vals.forEach((v, g) => {
+      ctx.beginPath(); ctx.arc(gx(w, g), gy(h, v), 3.5, 0, 7); ctx.fill();
+    });
+  }
+}
+
+function hit(ev) {
+  const r = gc.getBoundingClientRect();
+  const x = ev.clientX - r.left, y = ev.clientY - r.top;
+  const w = gc.clientWidth, h = gc.clientHeight;
+  for (const key of ['trigger', 'hold']) {
+    for (let g = 0; g < GATES; g++) {
+      if (Math.hypot(gx(w, g) - x, gy(h, state[key][g]) - y) < 9) return { key, g };
+    }
+  }
+  return null;
+}
+
+gc.onpointerdown = (e) => {
+  drag = hit(e);
+  if (drag) { gc.setPointerCapture(e.pointerId); e.preventDefault(); }
+};
+gc.onpointermove = (e) => {
+  gc.style.cursor = (drag || hit(e)) ? 'ns-resize' : 'default';
+  if (!drag) return;
+  const r = gc.getBoundingClientRect();
+  const h = gc.clientHeight;
+  const frac = 1 - (e.clientY - r.top - PAD.t) / (h - PAD.t - PAD.b);
+  state[drag.key][drag.g] = Math.max(0, Math.min(DB_MAX, Math.round(frac * DB_MAX)));
+};
+gc.onpointerup = () => {
+  if (drag) log(`${drag.key} gate ${drag.g} → ${state[drag.key][drag.g]} dB (press Write to save)`);
+  drag = null;
+};
+
+/* ---------- distance timeline ---------- */
+
+function drawTimeline() {
+  const cv = $('timeline');
+  const { ctx, w, h } = fit(cv);
+  ctx.clearRect(0, 0, w, h);
+  const now = Date.now();
+  const pts = state.history.filter((p) => now - p.t < TIMELINE_MS);
+  const maxCm = Math.max(100, GATES * GATE_METERS * 100);
+  const x0 = 30, span = TIMELINE_MS;
+  const xAt = (t) => x0 + ((t - (now - span)) / span) * (w - x0);
+  // Bottom band is reserved: time labels on the last row, occupancy strip above them.
+  const labelY = h - 4, stripY = h - 21, stripH = 8;
+  const base = stripY - 6, plotH = base - 10;   // y of 0 cm, and usable plot height
+  const yAt = (cm) => base - (Math.min(cm, maxCm) / maxCm) * plotH;
+
+  ctx.font = '10px ui-monospace, monospace';
+  for (let m = 0; m <= maxCm; m += 200) {
+    const y = yAt(m);
+    ctx.strokeStyle = css('--line');
+    ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(w, y); ctx.stroke();
+    ctx.fillStyle = css('--dim'); ctx.textAlign = 'right';
+    ctx.fillText(`${m / 100}m`, x0 - 4, y + 3);
+  }
+
+  // minute gridlines, so 5 minutes of history is actually readable as time
+  ctx.textAlign = 'center';
+  for (let s = 60_000; s <= span; s += 60_000) {
+    const x = xAt(now - s);
+    ctx.strokeStyle = css('--line');
+    ctx.beginPath(); ctx.moveTo(x, 10); ctx.lineTo(x, base); ctx.stroke();
+    ctx.fillStyle = css('--dim');
+    ctx.fillText(`-${s / 60_000}m`, x, labelY);
+  }
+
+  // occupancy strip
+  for (const p of pts) {
+    ctx.fillStyle = p.state >= 2 ? css('--trigger') : css('--ok');
+    ctx.globalAlpha = 0.9; ctx.fillRect(xAt(p.t), stripY, 2.5, stripH); ctx.globalAlpha = 1;
+  }
+
+  ctx.strokeStyle = css('--accent'); ctx.lineWidth = 2; ctx.beginPath();
+  let started = false;
+  for (const p of pts) {
+    const x = xAt(p.t), y = yAt(p.distance);
+    if (p.state < 2) { started = false; continue; }   // break the line when unoccupied
+    started ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    started = true;
+  }
+  ctx.stroke();
+}
+
+/* ---------- render loop ---------- */
+
+/* Assigning className every frame restarts the CSS transition, so the orb never
+ * settles on its target colour. Only write when it actually changes. */
+function setText(id, v) { const el = $(id); if (el.textContent !== v) el.textContent = v; }
+function setClass(el, v) { if (el.className !== v) el.className = v; }
+
+function tick() {
+  const f = state.latest;
+  // Reports stop entirely when the link drops, so a stale frame must not keep
+  // showing a confident green — fall back to a neutral orb.
+  const stale = !state.history.length || Date.now() - state.history.at(-1).t > 3000;
+  const orb = $('orb');
+
+  if (!f || stale) {
+    setClass(orb, 'orb idle');
+    setText('orbText', dev.connected ? 'no data' : 'disconnected');
+    setText('dist', '—');
+    setText('gate', '—');
+  } else {
+    const occupied = f.state >= 2;
+    setClass(orb, 'orb ' + (occupied ? 'on' : 'off'));
+    setText('orbText', occupied ? 'OCCUPIED' : 'CLEAR');
+    // Distance is only reported while occupied; showing the last value when clear
+    // would look like a person standing still at that range.
+    setText('dist', occupied ? String(f.distance) : '—');
+    setText('gate', occupied ? (f.distance / (GATE_METERS * 100)).toFixed(1) : '—');
+  }
+
+  const hz = measuredHz();
+  setText('fps', hz === null || stale ? '—' : `${hz.toFixed(1)} Hz`);
+  if (!$('viewAdv').hidden) drawGates();   // canvas has no width while hidden
+  if (!$('viewLive').hidden) drawTimeline();
+  requestAnimationFrame(tick);
+}
+
+/* ---------- tabs ---------- */
+
+function showView(adv) {
+  $('viewLive').hidden = adv;
+  $('viewAdv').hidden = !adv;
+  $('tabLive').classList.toggle('sel', !adv);
+  $('tabAdv').classList.toggle('sel', adv);
+}
+$('tabLive').onclick = () => showView(false);
+$('tabAdv').onclick = () => showView(true);
+tick();
+</script>
+</body>
+</html>
